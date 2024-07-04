@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify,make_response
 from flask_restful import Resource,Api
-from flask_jwt_extended import create_access_token, get_jwt, jwt_required
+from flask_jwt_extended import create_access_token, get_jwt, jwt_required, current_user,get_jwt_identity
 from server.utils.dbconfig import db
 from server import bcrypt
 from server.models.user import User
@@ -10,10 +10,10 @@ auth_bp = Blueprint('auth', __name__)
 auth_api = Api(auth_bp)
 
 
-def check_if_token_in_blocklist(jwt_header, jwt_payload):
-    jti = jwt_payload['jti']
-    token = TokenBlocklist.query.filter_by(jti=jti).first()
-    return token is not None
+# def check_if_token_in_blocklist(jwt_header, jwt_payload):
+#     jti = jwt_payload['jti']
+#     token = TokenBlocklist.query.filter_by(jti=jti).first()
+#     return token is not None
 
 class userRegistration(Resource):
     def post(self):
@@ -68,15 +68,31 @@ class UserLogout(Resource):
     def post(self):
         try:
             jti = get_jwt()['jti']
+            # Add token to blocklist
             token_blocklist = TokenBlocklist(jti=jti)
             db.session.add(token_blocklist)
             db.session.commit()
-            return make_response({"Message": "Successfully logged out"}, 200)
+
+            return make_response(jsonify({"Message": "Successfully logged out"}), 200)
+        
         except Exception as e:
             db.session.rollback()
-            return make_response({"Message": str(e)}, 500)
+            return make_response(jsonify({"Message": str(e)}), 500)
 
-    
+class Protected(Resource):
+    @jwt_required()
+    def get(self):
+        try:
+            current_user = get_jwt_identity()
+            user = User.query.filter_by(id=current_user).first()
+            if not user:
+                return jsonify({"message": "User not found"}), 404
+            return make_response({"message": f"Logged in as {user.username}"},200)
+        except Exception as e:
+            return jsonify({"message": str(e)}), 500
+        
+
 auth_api.add_resource(userRegistration, '/signup')
 auth_api.add_resource(UserLogin, '/login')
 auth_api.add_resource(UserLogout, '/logout')
+auth_api.add_resource(Protected, '/protected')

@@ -7,6 +7,8 @@ from flask_bcrypt import Bcrypt
 from flask_restful import Api
 from flask_migrate import Migrate
 from server.utils.dbconfig import db
+from server.models.user import User
+from server.models.tokenBlocklist import TokenBlocklist
 import os
 import datetime
 
@@ -34,6 +36,17 @@ def create_app():
     bcrypt.init_app(app)
     api.init_app(app)
     jwt.init_app(app)
+
+    @jwt.token_in_blocklist_loader
+    def check_if_token_in_blocklist(jwt_header, jwt_payload):
+        jti = jwt_payload['jti']
+        token = TokenBlocklist.query.filter_by(jti=jti).first()
+        return token is not None
+    
+    @jwt.user_lookup_loader
+    def user_lookup_callback(_jwt_header, jwt_data):
+        identity = jwt_data["sub"]
+        return User.query.filter_by(id=identity).first()
 
     # Import and register blueprints
     from .routes.auth import auth_bp
