@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify,make_response
 from flask_restful import Resource,Api
-from flask_jwt_extended import create_access_token, get_jwt, jwt_required, current_user,get_jwt_identity
+from flask_jwt_extended import create_access_token, get_jwt, jwt_required, get_jwt_identity
 from server.utils.dbconfig import db
 from server import bcrypt
 from server.models.user import User
@@ -9,11 +9,18 @@ from server.models.tokenBlocklist import TokenBlocklist
 auth_bp = Blueprint('auth', __name__)
 auth_api = Api(auth_bp)
 
+def role_required(role):
+    def decorator(func):
+        @jwt_required()
+        def wrapper(*args, **kwargs):
+            claims = get_jwt()
+            if claims['role'] != role:
+                return make_response({"Message": "Not Authorized"})
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
-# def check_if_token_in_blocklist(jwt_header, jwt_payload):
-#     jti = jwt_payload['jti']
-#     token = TokenBlocklist.query.filter_by(jti=jti).first()
-#     return token is not None
+
 
 class userRegistration(Resource):
     def post(self):
@@ -32,6 +39,7 @@ class userRegistration(Resource):
                 id = data['id'],
                 email = data['email'],
                 username = data['username'],
+                role = data['role'],
                 password=bcrypt.generate_password_hash(data['password']).decode('utf-8'),       
             )
             db.session.add(new_user)
@@ -54,7 +62,8 @@ class UserLogin(Resource):
 
             user = User.query.filter_by(username=username).first()
             if user and bcrypt.check_password_hash(user.password, password):
-                token = create_access_token(identity=user.id)
+                additional_claims = {"role": user.role}
+                token = create_access_token(identity=user.id, additional_claims=additional_claims )
                 response_body = {"token": token, "username":user.username, "user_id":user.id}
                 return make_response(response_body, 200)
             else:
@@ -91,8 +100,13 @@ class Protected(Resource):
         except Exception as e:
             return jsonify({"message": str(e)}), 500
         
+class AdminOnly(Resource):
+    @role_required('admin')
+    def get(self):
+        return make_response({"message": "Welcome, Admin!"}, 200)
 
 auth_api.add_resource(userRegistration, '/signup')
 auth_api.add_resource(UserLogin, '/login')
 auth_api.add_resource(UserLogout, '/logout')
 auth_api.add_resource(Protected, '/protected')
+auth_api.add_resource(AdminOnly, '/admin')
